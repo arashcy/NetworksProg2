@@ -1,5 +1,5 @@
 import argparse
-import RDT
+import rdt_2_1
 import time
 
 if __name__ == '__main__':
@@ -18,7 +18,7 @@ if __name__ == '__main__':
     timeout = 2 #send the next message if not response
     time_of_last_data = time.time()
      
-    rdt = RDT.RDT('client', args.server, args.port)
+    rdt = rdt_2_1.RDT('client', args.server, args.port)
     for msg_S in msg_L:
         print('Converting: '+msg_S)
         rdt.rdt_2_1_send(msg_S)

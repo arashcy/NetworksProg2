@@ -1,5 +1,5 @@
 import argparse
-import rdt_3_0 as RDT
+import RDT
 import time
 
 if __name__ == '__main__':
