@@ -15,7 +15,7 @@ if __name__ == '__main__':
             'Wise men make proverbs, but fools repeat them. -- Samuel Palmer (1805-80)']
     
      
-    timeout = 100 #send the next message if not response
+    timeout = 2 #send the next message if not response
     time_of_last_data = time.time()
      
     rdt = rdt_3_0.RDT('client', args.server, args.port)

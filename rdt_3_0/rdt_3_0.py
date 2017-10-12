@@ -1,5 +1,6 @@
 import network_3_0 as Network
 import argparse
+import time
 from time import sleep
 import hashlib
 
@@ -103,11 +104,17 @@ class RDT:
         self.seq_num += 1
         self.network.udt_send(p.get_byte_S())
 
-    def receive_packet(self):
+    def receive_packet(self, timeout_s = None):
         # keep extracting packets - if reordered, could get more than one
+        start_time = int(time.time())
         while True:
             byte_S = self.network.udt_receive()
             self.byte_buffer += byte_S
+
+            if timeout_s is not None and int(time.time()) - start_time > timeout_s:
+                # the timeout has been reached, we will throw a timeout error
+                # if the caller requests timeouts to occur
+                raise TimeoutError()
 
             # check if we have received enough bytes
             if (len(self.byte_buffer) < Packet.length_S_length):
@@ -128,7 +135,7 @@ class RDT:
             p = Packet.from_byte_S(packet_contents)
             return p
     
-    def rdt_3_0_send(self, msg_S):
+    def rdt_3_0_send(self, msg_S, timeout_s = 5):
         current_seq = self.seq_num
         send_packet = Packet(current_seq, msg_S)
         print("SENDER: Sending packet with seq %d" % self.seq_num)
@@ -137,18 +144,21 @@ class RDT:
             self.network.udt_send(send_packet.get_byte_S())
             print("SENDER: Sent packet with seq %d" % self.seq_num)
             print("SENDER: Waiting for ack to %d" % self.seq_num)
-            packet = self.receive_packet()
-            if packet is None:
-                print("SENDER: Received packet that was corrupted")
-            elif packet.is_ack() and packet.get_ack_no() != self.seq_num:
-                print("SENDER: Received ack for old packet, resending current packet")
-            elif packet.is_ack() and packet.get_ack_no() == self.seq_num:
-                print("SENDER: Seq %d was successfully acked" % self.seq_num)
-                self.seq_num = self.inv_seq_num()
-                break
-            elif packet.seq_num != self.seq_num:
-                print("SENDER: Receiver behind sender, sending ack")
-                self.network.udt_send(Packet.create_ack(self.seq_num, packet.seq_num).get_byte_S())
+            try:
+                packet = self.receive_packet(timeout_s)
+                if packet is None:
+                    print("SENDER: Received packet that was corrupted")
+                elif packet.is_ack() and packet.get_ack_no() != self.seq_num:
+                    print("SENDER: Received ack for old packet, resending current packet")
+                elif packet.is_ack() and packet.get_ack_no() == self.seq_num:
+                    print("SENDER: Seq %d was successfully acked" % self.seq_num)
+                    self.seq_num = self.inv_seq_num()
+                    break
+                elif packet.seq_num != self.seq_num:
+                    print("SENDER: Receiver behind sender, sending ack")
+                    self.network.udt_send(Packet.create_ack(self.seq_num, packet.seq_num).get_byte_S())
+            except TimeoutError:
+                print("SENDER: Timeout occurred after %d seconds, resending packet" % timeout_s)
 
 
     def rdt_3_0_receive(self):
