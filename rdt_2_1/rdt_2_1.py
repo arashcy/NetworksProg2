@@ -85,14 +85,9 @@ class Packet:
     def is_ack(self):
         return Flags.is_ack(self.flags)
 
-    def get_ack_no(self):
-        return int(self.flags[-1])
-
     def is_nack(self):
         return Flags.is_nack(self.flags)
 
-    def get_nack_no(self):
-        return int(self.flags[-1])
 
 class RDT:
     ## latest sequence number used in a packet
@@ -107,7 +102,7 @@ class RDT:
     
     def disconnect(self):
         self.network.disconnect()
-        
+
     def rdt_1_0_send(self, msg_S):
         p = Packet(self.seq_num, msg_S)
         self.seq_num += 1
@@ -135,20 +130,22 @@ class RDT:
 
     def receive_packet(self):
         # keep extracting packets - if reordered, could get more than one
-        local_buffer = ''
         while True:
             byte_S = self.network.udt_receive()
-            local_buffer += byte_S
+            self.byte_buffer += byte_S
 
             # check if we have received enough bytes
-            if (len(local_buffer) < Packet.length_S_length):
+            if (len(self.byte_buffer) < Packet.length_S_length):
                 continue  # not enough bytes to read packet length
             # extract length of packet
-            length = int(local_buffer[:Packet.length_S_length])
-            if len(local_buffer) < length:
+            length = int(self.byte_buffer[:Packet.length_S_length])
+            if len(self.byte_buffer) < length:
                 continue  # not enough bytes to read the whole packet
             # create packet from buffer content and add to return string
-            packet_contents = local_buffer[0:length]
+            packet_contents = self.byte_buffer[0:length]
+
+            # update the buffer to remove the currently read packet
+            self.byte_buffer = self.byte_buffer[length:]
 
             if Packet.corrupt(packet_contents):
                 return None
@@ -157,28 +154,52 @@ class RDT:
             return p
     
     def rdt_2_1_send(self, msg_S):
-        acknowledged = False
-        self.send_packet = Packet(self.seq_num, msg_S)
-        self.network.udt_send(self.send_packet.get_byte_S())
-        while not acknowledged:
+        current_seq = self.seq_num
+        send_packet = Packet(current_seq, msg_S)
+        print("SENDER: Sending packet with seq %d" % self.seq_num)
+
+        while current_seq == self.seq_num:
+            self.network.udt_send(send_packet.get_byte_S())
+            print("SENDER: Sent packet with seq %d" % self.seq_num)
+            print("SENDER: Waiting for ack to %d" % self.seq_num)
             packet = self.receive_packet()
-            if packet is None or (packet.is_nack() and packet.get_nack_no() == self.seq_num):
-                self.network.udt_send(self.send_packet.get_byte_S())
-            if packet.is_ack() and packet.get_ack_no() == self.seq_num:
+            if packet is None:
+                # packet is corrupt
+                print("SENDER: Received packet that was corrupted")
+                # self.network.udt_send(send_packet.get_byte_S())
+            elif packet.is_nack():
+                print("SENDER: Received nack, resending send_packet")
+                #self.network.udt_send(send_packet.get_byte_S())
+            elif packet.is_ack():
+                print("SENDER: Seq %d was successfully acked" % self.seq_num)
+                self.seq_num = 0 if self.seq_num == 1 else 1
                 break
-        self.seq_num = 0 if self.seq_num == 1 else 1
+            elif packet.seq_num != self.seq_num:
+                print("SENDER: Receiver behind sender, sending ack")
+                self.network.udt_send(Packet.create_ack(packet.seq_num).get_byte_S())
 
 
     def rdt_2_1_receive(self):
-        while True:
+
+        current_seq = self.seq_num
+
+        while current_seq == self.seq_num:
             packet = self.receive_packet()
-            if packet is None: # packet is corrupt
+            print("RECEIVER: Receiving packet")
+            if packet is None:
+                # packet is corrupt
+                print("RECEIVER: Received corrupt packet, sending nack")
                 self.network.udt_send(Packet.create_nack(self.seq_num).get_byte_S())
-            if packet.seq_num != self.seq_num: # packet has sequence number we don't want
+            elif packet.seq_num != self.seq_num:
+                # packet has sequence number we don't want
+                print("RECEIVER: Received packet with incorrect sequence number %d, desired %d, sending ack" % (packet.seq_num, self.seq_num))
                 self.network.udt_send(Packet.create_ack(packet.seq_num).get_byte_S())
-            else:   # packet has data matching our desired sequence number
+            else:
+                # packet has data matching our desired sequence number
                 data_S = packet.msg_S
-                self.network.udt_send(Packet.create_ack(packet.seq_num).get_byte_S())
+                print("RECEIVER: Successfully received packet with seq '%d' with response %s" % (self.seq_num, data_S))
+                self.network.udt_send(Packet.create_ack(self.seq_num).get_byte_S())
+                print("RECEIVER: Sending ack for sequence number %d" % packet.seq_num)
                 self.seq_num = 0 if self.seq_num == 1 else 1
                 return data_S
 
@@ -200,7 +221,7 @@ if __name__ == '__main__':
         
     else:
         sleep(1)
-        print(rdt.rdt_1_0_receive())
+        print(rdt.rdt_2_1_receive())
         rdt.rdt_2_1_send('MSG_FROM_SERVER')
         rdt.disconnect()
         

@@ -48,7 +48,6 @@ if __name__ == '__main__':
         rep_msg_S = piglatinize(msg_S)
         print('Converted %s \nto %s\n' % (msg_S, rep_msg_S))
         rdt.rdt_2_1_send(rep_msg_S)
-        print("> Successfully send response to client")
         
     rdt.disconnect()
 
